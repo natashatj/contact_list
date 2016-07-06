@@ -1,84 +1,77 @@
 require 'csv'
+require 'pg'
+require 'pry'
+require './db_connect'
 
-# Represents a person in an address book.
-# The ContactList class will work with Contact objects instead of interacting with the CSV file directly
 class Contact
 
   attr_accessor :name, :email
   attr_reader :id
-  # Creates a new contact object
-  # @param name [String] The contact's name
-  # @param email [String] The contact's email address
-  def initialize(id, name, email)#make consistent
-    @id = id
-    @name = name
-    @email = email 
-    
-    # TODO: Assign parameter values to instance variables.
+
+  DBConnect::connection()
+
+  
+  def initialize(params)
+    @id = params[:id]
+    @name = params[:name]
+    @email = params[:email]
   end
 
   def to_s
     "#{id}: #{name} (#{email})"
   end
 
-  # Provides functionality for managing contacts in the csv file.
+  def to_a
+    [@id, @name, @email]
+  end
+
+  def is_saved? 
+    @id != nil
+  end
+
+  def save
+    if is_saved?
+      res = DBConnect::connection.exec_params('UPDATE contacts SET name=$1, email=$2 WHERE id=$3::int;',[@name, @email, @id])
+    else
+      res = DBConnect::connection.exec_params('INSERT INTO contacts (name, email) VALUES ($1, $2) RETURNING id, name, email;',[@name, @email])
+
+      @id = res[0]['id']
+      return res[0]
+    end
+  end
+
   class << self
 
-    # Opens 'contacts.csv' and creates a Contact object for each line in the file (aka each contact).
-    # @return [Array<Contact>] Array of Contact objects
     def all
-      contacts = Array.new
-      # TODO: Return an Array of Contact instances made from the data in 'contacts.csv'.
-       CSV.foreach('contacts.csv') do |row|
-        contacts << Contact.new(row[0], row[1], row[2])
+      contact_results = []
+      rows = DBConnect::connection.exec('SELECT * FROM contacts;') 
+      rows.each do |row|
+        contact_results << Contact.new(DBConnect.hmap(row))  
       end
-      contacts
+      contact_results
     end
 
-    # Creates a new contact, adding it to the csv file, returning the new contact.
-    # @param name [String] the new contact's name
-    # @param email [String] the contact's email
-    def create(name, email)
-      new_id = all.length + 1
-      new_contact = [new_id, name, email]
-      CSV.open('contacts.csv', 'a') do |csv|
-        csv << new_contact
-      end
-      new_contact = Contact.new(new_id, name, email)
-      #figure out what is the something plus one for id
-      #count 
-      # TODO: Instantiate a Contact, add its data to the 'contacts.csv' file, and return it.
-    end
-    
-    # Find the Contact in the 'contacts.csv' file with the matching id.
-    # @param id [Integer] the contact id
-    # @return [Contact, nil] the contact with the specified id. If no contact has the id, returns nil.
-    def find(id)
-      all.each do |contact|
-        if contact.id == id
-          return contact
-        end
-      end
-      nil
-      # TODO: Find the Contact in the 'contacts.csv' file with the matching id.
-      #go through csv
-    end
-    
-    # Search for contacts by either name or email.
-    # @param term [String] the name fragment or email fragment to search for
-    # @return [Array<Contact>] Array of Contact objects.
     def search(term)
-      all.each do |contact|
-        if contact.name.include?(term) || contact.email.include?(term)
-          return contact.to_s
-        end
+      search_results = []
+      rows = DBConnect::connection.exec_params("SELECT * FROM contacts WHERE name LIKE $1;", ["%#{term}%"]) 
+      rows.each do |row|
+        search_results << Contact.new(DBConnect.hmap(row))
       end
+      search_results
     end
-      # TODO: Select the Contact instances from the 'contacts.csv' file whose name or email attributes contain the search term.
+
+    def find(id)
+      row = DBConnect::connection.exec_params("SELECT * FROM contacts WHERE id = $1::int;", [id])
+      if row.count > 0
+        row = row[0] 
+        Contact.new(DBConnect.hmap(row))
+      else
+        return nil
+      end
+    end 
+
+    def destroy
+      DBConnect::connection.exec_params("DELETE FROM contacts WHERE id=$1::int;", [id])
+    end
   end
 end
-# contact = Contact.new("Natasha", "natasga@gmail.com")
-# puts " id = #{contact.id}name = #{contact.name}, email = #{contact.email} "
-# puts Contact.all.inspect
-
-#TODO method to create a new object
